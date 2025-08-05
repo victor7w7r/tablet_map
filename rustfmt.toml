@@ -1,0 +1,10 @@
+fn_single_line = true
+indent_style = "Block"
+imports_granularity = "Module"
+match_arm_blocks = false
+newline_style = "Unix"
+reorder_imports = true
+reorder_impl_items = true
+tab_spaces = 2
+trailing_comma = "Never"
+trailing_semicolon = false
