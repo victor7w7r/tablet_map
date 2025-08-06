@@ -1,15 +1,14 @@
-use crate::utils::PAD;
-
 use evdev::uinput::VirtualDevice;
-use evdev::{AttributeSet, EventType, InputEvent, KeyCode, KeyEvent, RelativeAxisCode};
+use evdev::{EventType, InputEvent, KeyCode, KeyEvent, RelativeAxisCode, SynchronizationCode};
 use std::io::Result;
-use std::thread::{sleep, spawn};
+use std::thread::sleep;
 use std::time::Duration;
+
+use crate::utils::setup_virtual_device;
 
 const SCROLL_THRESHOLD: i32 = 3;
 
-static SCROLL_WHEEL: fn(&InputEvent) -> bool =
-  |ev| ev.event_type() == EventType::ABSOLUTE && ev.code() == 8;
+const DEV_NAME: &str = "Wacom Intuos5 touch S Pad";
 
 fn key_map(ev: &InputEvent, dev: &mut VirtualDevice) -> Result<()> {
   if ev.event_type() == EventType::KEY && ev.value() == 1 {
@@ -31,60 +30,66 @@ fn key_map(ev: &InputEvent, dev: &mut VirtualDevice) -> Result<()> {
 }
 
 pub fn pad_thread() -> Result<()> {
-  let mut pad_dev = crate::utils::scan_dev(PAD).expect("Failed to find pad device");
+  let mut pad_dev = crate::utils::scan_dev(DEV_NAME).expect("Failed to find pad device");
 
-  let mut virt_dev = VirtualDevice::builder()?
-    .name("virtual_pad")
-    .with_relative_axes(&AttributeSet::from_iter([
-      RelativeAxisCode::REL_Y,
-      RelativeAxisCode::REL_X,
-      RelativeAxisCode::REL_WHEEL,
-    ]))?
-    .with_keys(&AttributeSet::<KeyCode>::from_iter([
+  let mut virt_dev = setup_virtual_device(
+    DEV_NAME,
+    &Some(vec![
       KeyCode::BTN_LEFT,
       KeyCode::BTN_MIDDLE,
       KeyCode::BTN_RIGHT,
-    ]))?
-    .build()?;
+    ]),
+    &Some(vec![
+      RelativeAxisCode::REL_Y,
+      RelativeAxisCode::REL_X,
+      RelativeAxisCode::REL_WHEEL,
+    ]),
+  )?;
 
   pad_dev.grab().expect("Error grabbing pad device");
-  println!("Linked: {}", PAD);
+  println!("Linked: {}", DEV_NAME);
 
-  spawn(move || -> Result<()> {
-    let mut last_value = 0;
+  let mut last_value = 0;
 
-    loop {
-      for ev in pad_dev.fetch_events()? {
-        key_map(&ev, &mut virt_dev)?;
+  loop {
+    for ev in pad_dev.fetch_events()? {
+      key_map(&ev, &mut virt_dev)?;
 
-        if SCROLL_WHEEL(&ev) {
-          let current_value = ev.value();
-          let mut delta = current_value - last_value;
+      if ev.event_type() == EventType::ABSOLUTE && ev.code() == 8 {
+        let current_value = ev.value();
+        let mut delta = current_value - last_value;
 
-          if delta.abs() > 36 {
-            if delta > 0 {
-              delta -= 72; // 71 + 1
-            } else {
-              delta += 72;
-            }
+        if delta.abs() > 36 {
+          if delta > 0 {
+            delta -= 72; // 71 + 1
+          } else {
+            delta += 72;
           }
-
-          if delta != 0 && delta.abs() >= SCROLL_THRESHOLD {
-            let scroll_amount = delta / SCROLL_THRESHOLD;
-            let limited_scroll = if scroll_amount.abs() > 3 {
-              if scroll_amount > 0 { 3 } else { -3 }
-            } else {
-              scroll_amount
-            };
-
-            crate::gradual::smooth_scroll(0, limited_scroll, &mut virt_dev)?;
-          }
-
-          last_value = current_value;
         }
+
+        if delta != 0 && delta.abs() >= SCROLL_THRESHOLD {
+          let scroll_amount = delta / SCROLL_THRESHOLD;
+          let limited_scroll = if scroll_amount.abs() > 3 {
+            if scroll_amount > 0 { 3 } else { -3 }
+          } else {
+            scroll_amount
+          };
+
+          virt_dev.emit(&[InputEvent::new(
+            EventType::RELATIVE.0,
+            RelativeAxisCode::REL_WHEEL.0,
+            limited_scroll,
+          )])?;
+
+          virt_dev.emit(&[InputEvent::new(
+            EventType::SYNCHRONIZATION.0,
+            SynchronizationCode::SYN_REPORT.0,
+            0,
+          )])?;
+        }
+
+        last_value = current_value;
       }
     }
-  });
-
-  Ok(())
+  }
 }

@@ -1,8 +1,10 @@
 use evdev::Device;
+use evdev::uinput::VirtualDevice;
+use evdev::{AttributeSet, KeyCode, RelativeAxisCode};
+use std::io::Result;
 
-pub const PAD: &str = "Wacom Intuos5 touch S Pad";
-pub const TOUCH: &str = "Wacom Intuos5 touch S Finger";
-pub const STYLUS: &str = "Wacom Intuos5 touch S Pen";
+//pub const TOUCH: &str = "Wacom Intuos5 touch S Finger";
+//pub const STYLUS: &str = "Wacom Intuos5 touch S Pen";
 
 pub fn scan_dev(nombre: &str) -> Option<Device> {
   for entry in std::fs::read_dir("/dev/input").ok()? {
@@ -20,4 +22,26 @@ pub fn scan_dev(nombre: &str) -> Option<Device> {
   }
 
   None
+}
+
+pub fn setup_virtual_device(
+  name: &str,
+  keys: &Option<Vec<KeyCode>>,
+  axes: &Option<Vec<RelativeAxisCode>>,
+) -> Result<VirtualDevice> {
+  let mut builder = VirtualDevice::builder()?.name(name);
+
+  if let Some(keys) = keys
+    && !keys.is_empty()
+  {
+    builder = builder.with_keys(&AttributeSet::from_iter(keys.iter()))?;
+  }
+
+  if let Some(axes) = axes
+    && !axes.is_empty()
+  {
+    builder = builder.with_relative_axes(&AttributeSet::from_iter(axes.iter()))?;
+  }
+
+  Ok(builder.build()?)
 }
