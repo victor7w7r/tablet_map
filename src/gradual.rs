@@ -1,37 +1,30 @@
-pub struct GradualScroll {
-  velocity: f64,
-  decay_factor: f64,
-  sensitivity: f64,
-  active_threshold: f64,
-}
+use std::cmp::min;
 
-impl GradualScroll {
-  pub fn new(decay_factor: f64, sensitivity: f64) -> Self {
-    Self {
-      velocity: 0.0,
-      decay_factor,
-      sensitivity,
-      active_threshold: 0.1,
-    }
+use evdev::{EventType, InputEvent, RelativeAxisCode, SynchronizationCode, uinput::VirtualDevice};
+use std::io::Result;
+
+pub fn smooth_scroll(x: i32, y: i32, dev: &mut VirtualDevice) -> Result<()> {
+  if y != 0 {
+    dev.emit(&[InputEvent::new(
+      EventType::RELATIVE.0,
+      RelativeAxisCode::REL_WHEEL.0,
+      y,
+    )])?;
   }
 
-  pub fn add_impulse(&mut self, impulse: f64) {
-    self.velocity += impulse * self.sensitivity
+  if x != 0 {
+    dev.emit(&[InputEvent::new(
+      EventType::RELATIVE.0,
+      RelativeAxisCode::REL_HWHEEL.0,
+      x,
+    )])?;
   }
 
-  pub fn get_next_value(&mut self) -> f64 {
-    let current_value = self.velocity;
+  dev.emit(&[InputEvent::new(
+    EventType::SYNCHRONIZATION.0,
+    SynchronizationCode::SYN_REPORT.0,
+    0,
+  )])?;
 
-    self.velocity *= self.decay_factor;
-
-    if self.velocity.abs() < self.active_threshold {
-      self.velocity = 0.0
-    }
-
-    current_value
-  }
-
-  pub fn is_active(&self) -> bool {
-    self.velocity.abs() >= self.active_threshold
-  }
+  Ok(())
 }
