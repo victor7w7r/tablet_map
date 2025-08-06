@@ -3,9 +3,6 @@ use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, KeyCode, RelativeAxisCode};
 use std::io::Result;
 
-//pub const TOUCH: &str = "Wacom Intuos5 touch S Finger";
-//pub const STYLUS: &str = "Wacom Intuos5 touch S Pen";
-
 pub fn scan_dev(nombre: &str) -> Option<Device> {
   for entry in std::fs::read_dir("/dev/input").ok()? {
     let path = entry.ok()?.path();
