@@ -1,17 +1,22 @@
-use evdev::Device;
-use evdev::uinput::VirtualDevice;
-use evdev::{AttributeSet, KeyCode, RelativeAxisCode};
-use std::io::Result;
+use input_linux::EvdevHandle;
+use std::fs::File;
+use std::process::{Child, Command, Output};
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::thread::{JoinHandle, sleep, spawn};
+use std::time::{Duration, Instant};
 
-pub fn scan_dev(nombre: &str) -> Option<Device> {
+pub fn scan_dev(name: &str) -> Option<EvdevHandle<File>> {
   for entry in std::fs::read_dir("/dev/input").ok()? {
     let path = entry.ok()?.path();
 
     if path.file_name()?.to_str()?.starts_with("event") {
-      if let Ok(dev) = Device::open(&path) {
-        if let Some(dev_name) = dev.name() {
-          if dev_name.contains(nombre) {
-            return Some(dev);
+      if let Ok(file) = File::open(&path) {
+        let dev = EvdevHandle::new(file);
+        if let Ok(dev_name_bytes) = dev.device_name() {
+          if let Ok(dev_name) = String::from_utf8(dev_name_bytes) {
+            if dev_name.contains(&name) {
+              return Some(dev);
+            }
           }
         }
       }
@@ -21,24 +26,49 @@ pub fn scan_dev(nombre: &str) -> Option<Device> {
   None
 }
 
-pub fn setup_virtual_device(
-  name: &str,
-  keys: &Option<Vec<KeyCode>>,
-  axes: &Option<Vec<RelativeAxisCode>>,
-) -> Result<VirtualDevice> {
-  let mut builder = VirtualDevice::builder()?.name(name);
+pub fn assign_dev(name: &str, name_wl: &str) -> EvdevHandle<File> {
+  scan_dev(&name)
+    .or_else(|| scan_dev(&name_wl))
+    .expect("Failed to find device")
+}
 
-  if let Some(keys) = keys
-    && !keys.is_empty()
-  {
-    builder = builder.with_keys(&AttributeSet::from_iter(keys.iter()))?;
-  }
+pub fn run_scroll(rx: Receiver<i32>) -> JoinHandle<()> {
+  spawn(move || {
+    let throttle_ms = 12u64;
+    loop {
+      let mut acc: i32 = match rx.recv() {
+        Ok(v) => v,
+        Err(_) => break,
+      };
 
-  if let Some(axes) = axes
-    && !axes.is_empty()
-  {
-    builder = builder.with_relative_axes(&AttributeSet::from_iter(axes.iter()))?;
-  }
+      let start = Instant::now();
+      while start.elapsed() < Duration::from_millis(throttle_ms) {
+        match rx.try_recv() {
+          Ok(v) => acc = acc.saturating_add(v),
+          Err(TryRecvError::Empty) => sleep(Duration::from_millis(1)),
+          Err(TryRecvError::Disconnected) => break,
+        }
+      }
 
-  Ok(builder.build()?)
+      if acc == 0 {
+        continue;
+      }
+
+      send_scroll(&acc.to_string());
+    }
+  })
+}
+
+pub fn send_event(value: &str) -> Option<Output> {
+  Command::new("ydotool")
+    .args(&["click", value])
+    .output()
+    .ok()
+}
+
+pub fn send_scroll(value: &str) -> Option<Child> {
+  Command::new("ydotool")
+    .args(&["mousemove", "-w", "--", "0", value])
+    .spawn()
+    .ok()
 }
