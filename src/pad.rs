@@ -1,7 +1,7 @@
 use crate::utils::{assign_dev, run_scroll, send_event};
 use input_linux::{EventKind, InputEvent};
 use std::io::Result;
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{channel, Sender};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -102,7 +102,7 @@ impl Pad {
       magnitude = 1;
     }
 
-    let amt = if signed > 0 { magnitude } else { -magnitude };
+    let amt = if signed > 0 { -magnitude } else { magnitude };
     let _ = self.tx.send(amt);
     self.prev = Some(ev.value);
     self.last_ts = Some(now);
